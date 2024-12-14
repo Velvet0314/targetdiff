@@ -8,6 +8,7 @@ from utils import data as utils_data
 AROMATIC_FEAT_MAP_IDX = utils_data.ATOM_FAMILIES_ID['Aromatic']
 
 # only atomic number 1, 6, 7, 8, 9, 15, 16, 17 exist
+# 映射原子序数、杂化类型和芳香性为索引
 MAP_ATOM_TYPE_FULL_TO_INDEX = {
     (1, 'S', False): 0,
     (6, 'SP', False): 1,
@@ -34,6 +35,7 @@ MAP_ATOM_TYPE_FULL_TO_INDEX = {
     (17, 'SP3', False): 22
 }
 
+# 映射原子序数为索引
 MAP_ATOM_TYPE_ONLY_TO_INDEX = {
     1: 0,
     6: 1,
@@ -45,6 +47,7 @@ MAP_ATOM_TYPE_ONLY_TO_INDEX = {
     17: 7,
 }
 
+# 映射原子序数和芳香性（True 或 False）为索引
 MAP_ATOM_TYPE_AROMATIC_TO_INDEX = {
     (1, False): 0,
     (6, False): 1,
@@ -61,11 +64,12 @@ MAP_ATOM_TYPE_AROMATIC_TO_INDEX = {
     (17, False): 12
 }
 
+# 这些字典是 MAP_ATOM_TYPE_* 字典的反向映射，将索引值映射回原子类型（包括原子序数、杂化类型和芳香性等信息）
 MAP_INDEX_TO_ATOM_TYPE_ONLY = {v: k for k, v in MAP_ATOM_TYPE_ONLY_TO_INDEX.items()}
 MAP_INDEX_TO_ATOM_TYPE_AROMATIC = {v: k for k, v in MAP_ATOM_TYPE_AROMATIC_TO_INDEX.items()}
 MAP_INDEX_TO_ATOM_TYPE_FULL = {v: k for k, v in MAP_ATOM_TYPE_FULL_TO_INDEX.items()}
 
-
+# 根据给定的索引，返回原子序号。根据不同的模式（basic、add_aromatic、full），函数从不同的映射字典中提取对应的原子序号
 def get_atomic_number_from_index(index, mode):
     if mode == 'basic':
         atomic_number = [MAP_INDEX_TO_ATOM_TYPE_ONLY[i] for i in index.tolist()]
@@ -77,7 +81,7 @@ def get_atomic_number_from_index(index, mode):
         raise ValueError
     return atomic_number
 
-
+# 根据索引和模式，返回是否芳香的标志。只有在 add_aromatic 或 full 模式下，才会考虑芳香性。
 def is_aromatic_from_index(index, mode):
     if mode == 'add_aromatic':
         is_aromatic = [MAP_INDEX_TO_ATOM_TYPE_AROMATIC[i][1] for i in index.tolist()]
@@ -89,7 +93,7 @@ def is_aromatic_from_index(index, mode):
         raise ValueError
     return is_aromatic
 
-
+# 根据索引，返回杂化信息。目前只支持 full 模式
 def get_hybridization_from_index(index, mode):
     if mode == 'full':
         hybridization = [MAP_INDEX_TO_ATOM_TYPE_AROMATIC[i][1] for i in index.tolist()]
@@ -97,7 +101,7 @@ def get_hybridization_from_index(index, mode):
         raise ValueError
     return hybridization
 
-
+# 根据原子序数、杂化类型、芳香性标志和模式，返回原子在对应映射字典中的索引
 def get_index(atom_num, hybridization, is_aromatic, mode):
     if mode == 'basic':
         return MAP_ATOM_TYPE_ONLY_TO_INDEX[int(atom_num)]
@@ -112,17 +116,23 @@ def get_index(atom_num, hybridization, is_aromatic, mode):
         return MAP_ATOM_TYPE_FULL_TO_INDEX[(int(atom_num), str(hybridization), bool(is_aromatic))]
 
 
+# 负责蛋白质原子的特征提取。
+# 它使用原子序号、氨基酸类型（通过 one-hot 编码）和是否为主链原子的信息构建蛋白质原子的特征向量
 class FeaturizeProteinAtom(object):
 
     def __init__(self):
         super().__init__()
+        # 涵盖对应原子在周期表的序号
         self.atomic_numbers = torch.LongTensor([1, 6, 7, 8, 16, 34])  # H, C, N, O, S, Se
         self.max_num_aa = 20
 
+    # 特征向量的维度，等于原子种类的数量（6 种元素）、氨基酸类型的数量（20 种氨基酸）加上一个表示主链的信息（1）
     @property
     def feature_dim(self):
         return self.atomic_numbers.size(0) + self.max_num_aa + 1
 
+    # 将每个原子转换为一个特征向量并将其赋值给 data.protein_atom_feature
+    # 调用方式 FeaturizeProteinAtom()
     def __call__(self, data: ProteinLigandData):
         element = data.protein_element.view(-1, 1) == self.atomic_numbers.view(1, -1)  # (N_atoms, N_elements)
         amino_acid = F.one_hot(data.protein_atom_to_aa_type, num_classes=self.max_num_aa)
@@ -131,11 +141,13 @@ class FeaturizeProteinAtom(object):
         data.protein_atom_feature = x
         return data
 
-
+# 负责配体原子的特征提取
+# 根据不同的模式（basic、add_aromatic、full），它从配体原子的元素类型、杂化类型和芳香性信息中构建特征向量
 class FeaturizeLigandAtom(object):
 
     def __init__(self, mode='basic'):
         super().__init__()
+        # 配体模式
         assert mode in ['basic', 'add_aromatic', 'full']
         self.mode = mode
 
@@ -148,6 +160,7 @@ class FeaturizeLigandAtom(object):
         else:
             return len(MAP_ATOM_TYPE_FULL_TO_INDEX)
 
+    # 根据配体的原子信息（元素类型、杂化类型、芳香性）生成配体的原子特征，并将其赋值给 data.ligand_atom_feature_full
     def __call__(self, data: ProteinLigandData):
         element_list = data.ligand_element
         hybridization_list = data.ligand_hybridization
@@ -158,7 +171,8 @@ class FeaturizeLigandAtom(object):
         data.ligand_atom_feature_full = x
         return data
 
-
+# 负责配体分子中原子之间的键特征提取
+# 它通过 one-hot 编码将配体分子中的键类型转化为特征向量，并将其赋值给 data.ligand_bond_feature
 class FeaturizeLigandBond(object):
 
     def __init__(self):
@@ -168,7 +182,9 @@ class FeaturizeLigandBond(object):
         data.ligand_bond_feature = F.one_hot(data.ligand_bond_type - 1, num_classes=len(utils_data.BOND_TYPES))
         return data
 
-
+# 负责对配体和蛋白质的空间位置进行随机旋转
+# 旋转通过一个 3x3 的随机矩阵实现，该矩阵经过 QR 分解得到正交矩阵（旋转矩阵）
+# 旋转矩阵将配体和蛋白质的空间位置坐标 ligand_pos 和 protein_pos 进行旋转变换
 class RandomRotation(object):
 
     def __init__(self):

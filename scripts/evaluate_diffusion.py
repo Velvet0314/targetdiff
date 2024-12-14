@@ -130,6 +130,7 @@ if __name__ == '__main__':
                 continue
 
             # now we only consider complete molecules as success
+            # 评估指标
             bond_dist = eval_bond_length.bond_distance_from_mol(mol)
             all_bond_dist += bond_dist
 
@@ -161,12 +162,15 @@ if __name__ == '__main__':
     }
     print_dict(validity_dict, logger)
 
+    # 评估指标函数的调用
     c_bond_length_profile = eval_bond_length.get_bond_length_profile(all_bond_dist)
+    # 1
     c_bond_length_dict = eval_bond_length.eval_bond_length_profile(c_bond_length_profile)
     logger.info('JS bond distances of complete mols: ')
     print_dict(c_bond_length_dict, logger)
 
     success_pair_length_profile = eval_bond_length.get_pair_length_profile(success_pair_dist)
+    # 2
     success_js_metrics = eval_bond_length.eval_pair_length_profile(success_pair_length_profile)
     print_dict(success_js_metrics, logger)
 
@@ -198,6 +202,8 @@ if __name__ == '__main__':
             logger.info('Vina Dock :  Mean: %.3f Median: %.3f' % (np.mean(vina_dock), np.median(vina_dock)))
 
     # check ring distribution
+    # 评估指标
+    # 3
     print_ring_ratio([r['chem_results']['ring_size'] for r in results], logger)
 
     if args.save:

@@ -50,7 +50,7 @@ def _bond_type_str(bond_type: BondType) -> str:
     atom1, atom2, bond_category = bond_type
     return f'{atom1}-{atom2}|{bond_category}'
 
-
+# 评估指标
 def eval_bond_length_profile(bond_length_profile: BondLengthProfile) -> Dict[str, Optional[float]]:
     metrics = {}
 
@@ -75,7 +75,7 @@ def get_pair_length_profile(pair_lengths):
     }
     return pair_length_profile
 
-
+# 评估指标
 def eval_pair_length_profile(pair_length_profile):
     metrics = {}
     for k, gt_distribution in eval_bond_length_config.PAIR_EMPIRICAL_DISTRIBUTIONS.items():
@@ -120,7 +120,7 @@ def pair_distance_from_pos_v(pos, elements):
             dist_list.append(((s_sym, e_sym), d))
     return dist_list
 
-
+# 评估指标
 def bond_distance_from_mol(mol):
     pos = mol.GetConformer().GetPositions()
     pdist = pos[None, :] - pos[:, None]

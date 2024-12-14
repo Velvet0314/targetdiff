@@ -1,0 +1,21 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug train_diffusion",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "scripts.train_diffusion",  // 设置要调试的模块
+            "args": ["configs/training.yml"],     // 传递给脚本的参数
+            "cwd": "${workspaceFolder}",          // 设置工作目录为项目根目录
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}:${env:PYTHONPATH}"
+            },
+            "console": "integratedTerminal",      // 使用集成终端
+            "justMyCode": false                   // 设置为 false 以调试第三方库代码
+        }
+    ]
+}

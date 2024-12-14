@@ -135,3 +135,5 @@ dmypy.json
 .DS_Store
 
 tmp
+
+logs_diffusion/

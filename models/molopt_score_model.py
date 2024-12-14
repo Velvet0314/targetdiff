@@ -9,8 +9,10 @@ from models.common import compose_context, ShiftedSoftplus
 from models.egnn import EGNN
 from models.uni_transformer import UniTransformerO2TwoUpdateGeneral
 
-
+# RefineNet 是一个多路径细化网络，但在这里也许是采用了其思想？
+# 有待进一步研究
 def get_refine_net(refine_net_type, config):
+    # 定义了两种 RefineNet
     if refine_net_type == 'uni_o2':
         refine_net = UniTransformerO2TwoUpdateGeneral(
             num_blocks=config.num_blocks,
@@ -44,7 +46,7 @@ def get_refine_net(refine_net_type, config):
         raise ValueError(refine_net_type)
     return refine_net
 
-
+# 生成 DDPM 中的 β 参数
 def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_timesteps):
     def sigmoid(x):
         return 1 / (np.exp(-x) + 1)
@@ -77,11 +79,12 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     assert betas.shape == (num_diffusion_timesteps,)
     return betas
 
-
+# 生成所需要的 α 参数（由 β 生成）
 def cosine_beta_schedule(timesteps, s=0.008):
     """
     cosine schedule
     as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
+    这种生成方式由上面的论文提出，后续去了解一下
     """
     steps = timesteps + 1
     x = np.linspace(0, steps, steps)
@@ -202,7 +205,10 @@ class ScorePosNet3D(nn.Module):
         self.config = config
 
         # variance schedule
-        self.model_mean_type = config.model_mean_type  # ['noise', 'C0']
+
+        # 模型的均值类型，用于控制噪声预测模式
+        self.model_mean_type = config.model_mean_type  # ['noise', 'C0'] 
+
         self.loss_v_weight = config.loss_v_weight
         # self.v_mode = config.v_mode
         # assert self.v_mode == 'categorical'
@@ -230,11 +236,13 @@ class ScorePosNet3D(nn.Module):
                 num_diffusion_timesteps=config.num_diffusion_timesteps,
             )
             alphas = 1. - betas
-        alphas_cumprod = np.cumprod(alphas, axis=0)
-        alphas_cumprod_prev = np.append(1., alphas_cumprod[:-1])
+        alphas_cumprod = np.cumprod(alphas, axis=0) # 累积乘积 alpha
+        # 累积 t=0 ~ t= T-1 的 alpha
+        alphas_cumprod_prev = np.append(1., alphas_cumprod[:-1])    # 上一时间步的 alpha
 
+        # 转换为 torch 常量，便于后续计算
         self.betas = to_torch_const(betas)
-        self.num_timesteps = self.betas.size(0)
+        self.num_timesteps = self.betas.size(0) # 保存 betas 数组的长度，即扩散过程中的时间步数 T
         self.alphas_cumprod = to_torch_const(alphas_cumprod)
         self.alphas_cumprod_prev = to_torch_const(alphas_cumprod_prev)
 
@@ -266,6 +274,7 @@ class ScorePosNet3D(nn.Module):
         self.log_alphas_cumprod_v = to_torch_const(log_alphas_cumprod_v)
         self.log_one_minus_alphas_cumprod_v = to_torch_const(log_1_min_a(log_alphas_cumprod_v))
 
+        # 注册时间步损失统计变量
         self.register_buffer('Lt_history', torch.zeros(self.num_timesteps))
         self.register_buffer('Lt_count', torch.zeros(self.num_timesteps))
 
@@ -337,6 +346,7 @@ class ScorePosNet3D(nn.Module):
             h_protein = torch.cat([h_protein, torch.zeros(len(h_protein), 1).to(h_protein)], -1)
             init_ligand_h = torch.cat([init_ligand_h, torch.ones(len(init_ligand_h), 1).to(h_protein)], -1)
 
+        # 组合蛋白质和配体的上下文信息
         h_all, pos_all, batch_all, mask_ligand = compose_context(
             h_protein=h_protein,
             h_ligand=init_ligand_h,
@@ -482,6 +492,7 @@ class ScorePosNet3D(nn.Module):
         loss_v = scatter_mean(mask * decoder_nll_v + (1. - mask) * kl_v, batch, dim=0)
         return loss_v
 
+    # 训练算法关键部分
     def get_diffusion_loss(
             self, protein_pos, protein_v, batch_protein, ligand_pos, ligand_v, batch_ligand, time_step=None
     ):
@@ -490,13 +501,16 @@ class ScorePosNet3D(nn.Module):
             protein_pos, ligand_pos, batch_protein, batch_ligand, mode=self.center_pos_mode)
 
         # 1. sample noise levels
+        # 步骤二：生成时间步
         if time_step is None:
+            # 由函数 sample_time 生成
             time_step, pt = self.sample_time(num_graphs, protein_pos.device, self.sample_time_method)
         else:
             pt = torch.ones_like(time_step).float() / self.num_timesteps
         a = self.alphas_cumprod.index_select(0, time_step)  # (num_graphs, )
 
         # 2. perturb pos and v
+        # 步骤四&五：对 pos & v 进行加噪
         a_pos = a[batch_ligand].unsqueeze(-1)  # (num_ligand_atoms, 1)
         pos_noise = torch.zeros_like(ligand_pos)
         pos_noise.normal_()
@@ -507,6 +521,7 @@ class ScorePosNet3D(nn.Module):
         ligand_v_perturbed, log_ligand_vt = self.q_v_sample(log_ligand_v0, time_step, batch_ligand)
 
         # 3. forward-pass NN, feed perturbed pos and v, output noise
+        # 步骤六：前向传播计算，得到每阶段加噪的结果和网络预测的噪声
         preds = self(
             protein_pos=protein_pos,
             protein_v=protein_v,
@@ -519,7 +534,9 @@ class ScorePosNet3D(nn.Module):
         )
 
         pred_ligand_pos, pred_ligand_v = preds['pred_ligand_pos'], preds['pred_ligand_v']
+        # 网络预测的噪声
         pred_pos_noise = pred_ligand_pos - ligand_pos_perturbed
+
         # atom position
         if self.model_mean_type == 'noise':
             pos0_from_e = self._predict_x0_from_eps(
@@ -532,6 +549,8 @@ class ScorePosNet3D(nn.Module):
         else:
             raise ValueError
 
+        # 步骤七&八：计算后验分布与误差
+        
         # atom pos loss
         if self.model_mean_type == 'C0':
             target, pred = ligand_pos, pred_ligand_pos
