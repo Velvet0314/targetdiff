@@ -497,6 +497,8 @@ class ScorePosNet3D(nn.Module):
             self, protein_pos, protein_v, batch_protein, ligand_pos, ligand_v, batch_ligand, time_step=None
     ):
         num_graphs = batch_protein.max().item() + 1
+
+        # 步骤三: 中心化 pos，质心归零
         protein_pos, ligand_pos, _ = center_pos(
             protein_pos, ligand_pos, batch_protein, batch_ligand, mode=self.center_pos_mode)
 
@@ -549,9 +551,8 @@ class ScorePosNet3D(nn.Module):
         else:
             raise ValueError
 
-        # 步骤七&八：计算后验分布与误差
-        
         # atom pos loss
+        # 步骤七&八：计算后验分布与误差
         if self.model_mean_type == 'C0':
             target, pred = ligand_pos, pred_ligand_pos
         elif self.model_mean_type == 'noise':
@@ -649,6 +650,7 @@ class ScorePosNet3D(nn.Module):
         )
         return preds
 
+    # 采样算法关键部分
     @torch.no_grad()
     def sample_diffusion(self, protein_pos, protein_v, batch_protein,
                          init_ligand_pos, init_ligand_v, batch_ligand,
@@ -658,16 +660,22 @@ class ScorePosNet3D(nn.Module):
             num_steps = self.num_timesteps
         num_graphs = batch_protein.max().item() + 1
 
+        # 步骤二：初始化配体位置？
         protein_pos, init_ligand_pos, offset = center_pos(
             protein_pos, init_ligand_pos, batch_protein, batch_ligand, mode=center_pos_mode)
 
         pos_traj, v_traj = [], []
         v0_pred_traj, vt_pred_traj = [], []
         ligand_pos, ligand_v = init_ligand_pos, init_ligand_v
+        
         # time sequence
+        # 反转时间步，从 T-1 到 0
         time_seq = list(reversed(range(self.num_timesteps - num_steps, self.num_timesteps)))
         for i in tqdm(time_seq, desc='sampling', total=len(time_seq)):
             t = torch.full(size=(num_graphs,), fill_value=i, dtype=torch.long, device=protein_pos.device)
+            
+            # 步骤五：从时间步 T 开始使用模型 ϕ₀ 从 [xₜ, vₜ] 预测 [x̂₀, v̂₀]
+            # self() 调用前向传播 forward()
             preds = self(
                 protein_pos=protein_pos,
                 protein_v=protein_v,
@@ -689,6 +697,7 @@ class ScorePosNet3D(nn.Module):
             else:
                 raise ValueError
 
+            # 步骤六&七：由后验分布采样 [xₜ₋₁, vₜ₋₁]
             pos_model_mean = self.q_pos_posterior(x0=pos0_from_e, xt=ligand_pos, t=t, batch=batch_ligand)
             pos_log_variance = extract(self.posterior_logvar, t, batch_ligand)
             # no noise when t == 0
@@ -697,6 +706,7 @@ class ScorePosNet3D(nn.Module):
                 ligand_pos)
             ligand_pos = ligand_pos_next
 
+            # 若不只是采样位置，则采样原子类型 vₜ₋₁
             if not pos_only:
                 log_ligand_v_recon = F.log_softmax(v0_from_e, dim=-1)
                 log_ligand_v = index_to_log_onehot(ligand_v, self.num_classes)
