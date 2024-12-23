@@ -668,9 +668,9 @@ class ScorePosNet3D(nn.Module):
         v0_pred_traj, vt_pred_traj = [], []
         ligand_pos, ligand_v = init_ligand_pos, init_ligand_v
         
-        # time sequence
-        # 反转时间步，从 T-1 到 0
-        time_seq = list(reversed(range(self.num_timesteps - num_steps, self.num_timesteps)))
+            # time sequence
+            # 反转时间步，从 T-1 到 0
+            time_seq = list(reversed(range(self.num_timesteps - num_steps, self.num_timesteps)))
         for i in tqdm(time_seq, desc='sampling', total=len(time_seq)):
             t = torch.full(size=(num_graphs,), fill_value=i, dtype=torch.long, device=protein_pos.device)
             
